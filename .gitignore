@@ -6,5 +6,8 @@ __pycache__/
 .venv/
 *.egg-info/
 .pytest_cache/
-experiments.db
+# any SQLite store, whatever it is named
+*.db
+*.db-wal
+*.db-shm
 .DS_Store
