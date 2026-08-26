@@ -1,0 +1,38 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[dev,api]"
+      - run: pytest -q
+
+      # The project's central claim, re-checked on every push: naive peeking inflates
+      # the false-positive rate and the calibrated boundary does not.
+      - name: verify the sequential guarantee
+        run: prompt-exp stats peeking --draws 200000
+
+      - name: end-to-end demo
+        run: |
+          prompt-exp --db ci.db prompt new triage "Support triage"
+          prompt-exp --db ci.db prompt version triage --system "Triage for {{product}}. Be precise." \
+            --message baseline --author ci --activate --reason "ci"
+          prompt-exp --db ci.db prompt version triage --system "Triage for {{product}}. Think step by step." \
+            --message cot --author ci
+          prompt-exp --db ci.db exp create e triage 1 2
+          prompt-exp --db ci.db exp start e --actor ci
+          prompt-exp --db ci.db exp run e --n 3000 --var product=Acme
+          prompt-exp --db ci.db log --limit 10
