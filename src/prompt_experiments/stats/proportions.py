@@ -31,13 +31,24 @@ class Interval:
 
 @dataclass(frozen=True)
 class TestResult:
-    statistic: float
+    statistic: float  # already on the standard-normal scale; see z_score
     p_value: float
     effect: float          # difference in proportions, arm B minus arm A
     effect_low: float
     effect_high: float
     n_a: int
     n_b: int
+
+    @property
+    def z_score(self) -> float:
+        """The statistic on the standard-normal scale.
+
+        For this test they are the same number — the two-proportion statistic IS a
+        z. The property exists so that every result object in stats/ answers the
+        same question, and callers stop reaching for `.statistic`, whose scale
+        differs per test.
+        """
+        return self.statistic
 
     @property
     def effect_interval(self) -> str:

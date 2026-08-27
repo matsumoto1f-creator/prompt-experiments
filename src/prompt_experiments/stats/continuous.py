@@ -34,9 +34,41 @@ class ContinuousResult:
     n_a: int
     n_b: int
 
+    # Set by each test, because only the test knows what scale its own statistic
+    # is on. `statistic` is reported as the test computed it (t for Welch, U for
+    # Mann-Whitney); `z_score` is the standard-normal equivalent.
+    z: float = 0.0
+
     @property
     def effect_interval(self) -> str:
         return f"{self.effect:+.3f} [{self.effect_low:+.3f}, {self.effect_high:+.3f}]"
+
+    @property
+    def z_score(self) -> float:
+        """The statistic on the standard-normal scale, signed by the effect.
+
+        The sequential boundary is a constant on the Brownian scale, which is only
+        meaningful for a statistic that is standard normal under the null. U is not:
+        it lives in [0, n_a*n_b], so feeding it to a boundary of ~2 declared every
+        skewed experiment significant — measured at a 100% false-positive rate on
+        no-effect data. Welch's t is the milder version of the same error: its tails
+        are wider than the normal's, so a t of 1.99 is not 5% evidence at small n.
+
+        Standardising through the p-value is exact for what the boundary needs — the
+        two-sided tail probability — and is what makes the three tests comparable.
+        """
+        return self.z
+
+
+def _standardise(p_value: float, direction: float) -> float:
+    """Convert a two-sided p-value plus a direction into a signed z.
+
+    Clamped at both ends: p == 0 would give an infinite z (and infinities poison
+    the boundary comparison), and a direction of exactly 0 has no sign to carry.
+    """
+    p = min(max(float(p_value), 1e-300), 1.0)
+    magnitude = float(stats.norm.isf(p / 2))
+    return math.copysign(magnitude, direction) if direction else magnitude
 
 
 def welch_t(a: Sequence[float], b: Sequence[float], confidence: float = 0.95) -> ContinuousResult:
@@ -45,7 +77,7 @@ def welch_t(a: Sequence[float], b: Sequence[float], confidence: float = 0.95) ->
     if arr_a.size < 2 or arr_b.size < 2:
         return ContinuousResult("welch-t", 0.0, 1.0, float(arr_a.mean() if arr_a.size else 0),
                                 float(arr_b.mean() if arr_b.size else 0), 0.0, -math.inf, math.inf,
-                                arr_a.size, arr_b.size)
+                                arr_a.size, arr_b.size, z=0.0)
 
     statistic, p_value = stats.ttest_ind(arr_b, arr_a, equal_var=False)
 
@@ -69,6 +101,8 @@ def welch_t(a: Sequence[float], b: Sequence[float], confidence: float = 0.95) ->
         effect_high=effect + crit * se,
         n_a=int(arr_a.size),
         n_b=int(arr_b.size),
+        # t -> z through the two-sided tail. The t's own sign is the direction.
+        z=_standardise(p_value, float(statistic)),
     )
 
 
@@ -82,7 +116,7 @@ def mann_whitney(a: Sequence[float], b: Sequence[float], confidence: float = 0.9
     arr_a, arr_b = np.asarray(a, dtype=float), np.asarray(b, dtype=float)
     if arr_a.size < 2 or arr_b.size < 2:
         return ContinuousResult("mann-whitney", 0.0, 1.0, 0.0, 0.0, 0.0, -math.inf, math.inf,
-                                arr_a.size, arr_b.size)
+                                arr_a.size, arr_b.size, z=0.0)
 
     statistic, p_value = stats.mannwhitneyu(arr_b, arr_a, alternative="two-sided")
     effect = float(np.median(arr_b) - np.median(arr_a))
@@ -102,6 +136,10 @@ def mann_whitney(a: Sequence[float], b: Sequence[float], confidence: float = 0.9
         mean_a=float(np.median(arr_a)),
         mean_b=float(np.median(arr_b)),
         effect=effect,
+        # U -> z through the two-sided tail. U's null mean is n_a*n_b/2, so which
+        # side of that it falls on is the direction; U's own magnitude is not a z
+        # and must never reach the sequential boundary.
+        z=_standardise(p_value, float(statistic) - arr_a.size * arr_b.size / 2),
         effect_low=float(low),
         effect_high=float(high),
         n_a=int(arr_a.size),

@@ -63,7 +63,7 @@ def analyse(store: Store, experiment: Experiment) -> Analysis:
             control.successes, max(control.n - control.errors, 0),
             treatment.successes, max(treatment.n - treatment.errors, 0),
         )
-        z, p_value, effect, test_name = result.statistic, result.p_value, result.effect_interval, "two-proportion z"
+        z, p_value, effect, test_name = result.z_score, result.p_value, result.effect_interval, "two-proportion z"
         control_interval = str(wilson_interval(control.successes, max(control.n - control.errors, 1)))
         treatment_interval = str(wilson_interval(treatment.successes, max(treatment.n - treatment.errors, 1)))
     else:
@@ -72,7 +72,10 @@ def analyse(store: Store, experiment: Experiment) -> Analysis:
         result = welch_t(a, b)
         if _looks_skewed(a) or _looks_skewed(b):
             result = mann_whitney(a, b)
-        z, p_value, effect, test_name = result.statistic, result.p_value, result.effect_interval, result.test
+        # z_score, NOT statistic: Welch reports a t and Mann-Whitney reports U, and
+        # the sequential boundary is a constant on the standard-normal scale. Passing
+        # U through made every skewed experiment cross at the first look.
+        z, p_value, effect, test_name = result.z_score, result.p_value, result.effect_interval, result.test
         control_interval = f"{result.mean_a:.3f}"
         treatment_interval = f"{result.mean_b:.3f}"
 
